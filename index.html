@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Laser Show Visualizer</title>
+  <style>
+    body, html {
+      margin: 0;
+      padding: 0;
+      overflow: hidden;
+      background: black;
+      font-family: sans-serif;
+      color: white;
+    }
+    canvas {
+      position: absolute;
+      top: 0;
+      left: 0;
+    }
+    #controls {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      z-index: 10;
+      background: rgba(0,0,0,0.5);
+      padding: 10px;
+      border-radius: 10px;
+    }
+    #warning {
+      color: red;
+      font-weight: bold;
+    }
+    #playPauseBtn, #intensityRange, #beatSyncToggle, #themeSelect {
+      margin-top: 10px;
+      padding: 5px 10px;
+      background: white;
+      color: black;
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+    }
+    label {
+      display: block;
+      margin-top: 10px;
+    }
+  </style>
+</head>
+<body>
+  <div id="controls">
+    <input type="file" id="audioUpload" accept="audio/*">
+    <p id="warning">⚠️ WARNING: This site contains flashing lights and strobe effects.</p>
+    <button id="playPauseBtn">Play</button>
+    <label>Intensity
+      <input type="range" id="intensityRange" min="0.1" max="5" step="0.1" value="1">
+    </label>
+    <label>
+      <input type="checkbox" id="beatSyncToggle"> Beat Sync
+    </label>
+    <label>Color Theme
+      <select id="themeSelect">
+        <option value="rainbow">Rainbow</option>
+        <option value="neon">Neon</option>
+        <option value="ice">Ice</option>
+        <option value="fire">Fire</option>
+        <option value="mono">Monochrome</option>
+        <option value="forest">Forest</option>
+        <option value="sunset">Sunset</option>
+        <option value="cyberpunk">Cyberpunk</option>
+        <option value="pastel">Pastel</option>
+        <option value="vaporwave">Vaporwave</option>
+      </select>
+    </label>
+  </div>
+  <canvas id="visualizer"></canvas>
+  <audio id="audio" controls hidden></audio>
+
+  <script>
+    const canvas = document.getElementById('visualizer');
+    const ctx = canvas.getContext('2d');
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+
+    const audio = document.getElementById('audio');
+    const audioUpload = document.getElementById('audioUpload');
+    const playPauseBtn = document.getElementById('playPauseBtn');
+    const intensityRange = document.getElementById('intensityRange');
+    const beatSyncToggle = document.getElementById('beatSyncToggle');
+    const themeSelect = document.getElementById('themeSelect');
+
+    let audioContext;
+    let analyser;
+    let dataArray;
+    let bufferLength;
+    let isPlaying = false;
+    let intensity = 1;
+    let beatSync = false;
+    let currentTheme = 'rainbow';
+    let lastBeatTime = 0;
+
+    themeSelect.addEventListener('change', (e) => {
+      currentTheme = e.target.value;
+    });
+
+    audioUpload.addEventListener('change', function(e) {
+      const file = e.target.files[0];
+      const url = URL.createObjectURL(file);
+      audio.src = url;
+      audio.load();
+
+      if (!audioContext) {
+        audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        const source = audioContext.createMediaElementSource(audio);
+        analyser = audioContext.createAnalyser();
+        source.connect(analyser);
+        analyser.connect(audioContext.destination);
+        analyser.fftSize = 256;
+        bufferLength = analyser.frequencyBinCount;
+        dataArray = new Uint8Array(bufferLength);
+        animate();
+      }
+    });
+
+    playPauseBtn.addEventListener('click', () => {
+      if (!audio.src) return;
+      if (audio.paused) {
+        audio.play();
+        playPauseBtn.textContent = 'Pause';
+        isPlaying = true;
+      } else {
+        audio.pause();
+        playPauseBtn.textContent = 'Play';
+        isPlaying = false;
+      }
+    });
+
+    intensityRange.addEventListener('input', (e) => {
+      intensity = parseFloat(e.target.value);
+    });
+
+    beatSyncToggle.addEventListener('change', (e) => {
+      beatSync = e.target.checked;
+    });
+
+    function getThemeColor(i) {
+      switch(currentTheme) {
+        case 'neon': return `hsl(${i * 10 % 360}, 100%, 60%)`;
+        case 'ice': return `rgba(100, 200, 255, 0.8)`;
+        case 'fire': return `rgba(${200 + i % 55}, ${i % 100}, 0, 0.9)`;
+        case 'mono': return `rgba(255, 255, 255, 0.8)`;
+        case 'forest': return `rgba(${50 + i % 50}, ${100 + i % 100}, ${50 + i % 30}, 0.8)`;
+        case 'sunset': return `rgba(${255 - i % 100}, ${100 + i % 100}, ${50 + i % 50}, 0.8)`;
+        case 'cyberpunk': return `rgba(${i % 255}, 0, ${255 - i % 100}, 0.9)`;
+        case 'pastel': return `hsl(${i * 15 % 360}, 100%, 85%)`;
+        case 'vaporwave': return `rgba(${200 + i % 55}, ${100 + i % 55}, ${255 - i % 100}, 0.8)`;
+        default: return `hsl(${Math.random() * 360}, 100%, 50%)`;
+      }
+    }
+
+    function isBeat(frequencies) {
+      const now = performance.now();
+      const max = Math.max(...frequencies);
+      if (max > 200 && now - lastBeatTime > 300) {
+        lastBeatTime = now;
+        return true;
+      }
+      return false;
+    }
+
+    function animate() {
+      requestAnimationFrame(animate);
+      if (!analyser) return;
+
+      analyser.getByteFrequencyData(dataArray);
+
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.2)';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      const centerX = canvas.width / 2;
+      const centerY = canvas.height / 2;
+
+      for (let i = 0; i < bufferLength; i++) {
+        const value = dataArray[i] * intensity;
+        const angle = (i / bufferLength) * Math.PI * 2;
+        const radius = value * 2;
+        const x = centerX + Math.cos(angle) * radius;
+        const y = centerY + Math.sin(angle) * radius;
+
+        ctx.strokeStyle = getThemeColor(i);
+        ctx.beginPath();
+        ctx.moveTo(centerX, centerY);
+        ctx.lineTo(x, y);
+        ctx.stroke();
+      }
+
+      const time = Date.now() * 0.005;
+      const beat = beatSync && isBeat(dataArray);
+      const pulse = beat ? 150 : Math.abs(Math.sin(time)) * 100 * intensity;
+      ctx.strokeStyle = `rgba(255,255,255,${Math.random()})`;
+      ctx.beginPath();
+      ctx.rect(centerX - pulse/2, centerY - pulse/2, pulse, pulse);
+      ctx.stroke();
+
+      for (let i = 0; i < 50; i++) {
+        ctx.fillStyle = getThemeColor(i);
+        ctx.beginPath();
+        ctx.arc(Math.random() * canvas.width, Math.random() * canvas.height, Math.random() * 5, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      if (Math.random() < 0.05 * intensity) {
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.3)';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+      }
+    }
+
+    window.addEventListener('resize', () => {
+      canvas.width = window.innerWidth;
+      canvas.height = window.innerHeight;
+    });
+  </script>
+</body>
+</html>
